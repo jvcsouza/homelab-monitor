@@ -1,0 +1,5 @@
+# segredos e dados — NUNCA versionar
+.env
+**/.env
+gatus-data/
+# (arquivos *.example ficam versionados)

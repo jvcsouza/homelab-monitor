@@ -1,0 +1,12 @@
+services:
+  gatus:
+    image: twinproduction/gatus:latest
+    container_name: gatus
+    restart: unless-stopped
+    network_mode: host          # enxerga wg0 direto (sem dança de UFW/bridge)
+    cap_add: [ NET_RAW ]        # necessário pros checks icmp://
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ./gatus-data:/data
+    environment:
+      - NTFY_TOKEN=${NTFY_TOKEN}   # lido do .env ao lado (gitignored)

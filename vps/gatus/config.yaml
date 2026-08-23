@@ -1,0 +1,96 @@
+# Gatus — Fase 1 (observabilidade, read-only)
+web:
+  address: "10.66.66.1"   # guard rail: nunca no ens3
+  port: 8081
+
+storage:
+  type: sqlite
+  path: /data/data.db
+
+ui:
+  title: "shost.me — Status"
+  header: "shost.me"
+  dark-mode: true
+  buttons:
+    - name: "Homepage"
+      link: "https://lan.shost.me"
+    - name: "Cockpit"
+      link: "https://cockpit.lan.shost.me"
+
+alerting:
+  custom:
+    url: "https://ntfy.shost.me"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+      Authorization: "Bearer ${NTFY_TOKEN}"
+    body: |
+      {
+        "topic": "healthcheck",
+        "title": "[ENDPOINT_GROUP] · [ENDPOINT_NAME]",
+        "message": "[ALERT_DESCRIPTION]",
+        "tags": ["[ALERT_TRIGGERED_OR_RESOLVED]"],
+        "priority": 4
+      }
+    default-alert:
+      enabled: true
+      send-on-resolved: true
+      failure-threshold: 3
+      success-threshold: 2
+    placeholders:
+      ALERT_TRIGGERED_OR_RESOLVED:
+        TRIGGERED: "warning"
+        RESOLVED: "white_check_mark"
+
+endpoints:
+  - name: "Internet do VPS (anchor)"
+    group: "Rede/Túneis"
+    url: "icmp://1.1.1.1"
+    interval: 30s
+    conditions: ["[CONNECTED] == true"]
+    alerts: [{ type: custom }]
+
+  - name: "AdGuard DNS"
+    group: "Rede/Túneis"
+    url: "10.66.66.1"
+    interval: 30s
+    dns:
+      query-name: "example.com"
+      query-type: "A"
+    conditions: ["[DNS_RCODE] == NOERROR"]
+    alerts: [{ type: custom }]
+
+  - name: "Cockpit"
+    group: "Serviços VPS"
+    url: "tcp://10.66.66.1:9090"
+    interval: 1m
+    conditions: ["[CONNECTED] == true"]
+    alerts: [{ type: custom }]
+
+  - name: "Portainer"
+    group: "Serviços VPS"
+    url: "tcp://10.66.66.1:9000"    # ajuste a porta
+    interval: 1m
+    conditions: ["[CONNECTED] == true"]
+    alerts: [{ type: custom }]
+
+  - name: "Homepage"
+    group: "Serviços VPS"
+    url: "tcp://10.66.66.1:3000"    # ajuste a porta
+    interval: 1m
+    conditions: ["[CONNECTED] == true"]
+    alerts: [{ type: custom }]
+
+  - name: "Pi alcançável (wg0)"
+    group: "Casa/Pi"
+    url: "icmp://10.66.66.5"
+    interval: 30s
+    conditions: ["[CONNECTED] == true"]
+    alerts: [{ type: custom }]
+
+  - name: "Caddy do Pi"
+    group: "Casa/Pi"
+    url: "tcp://10.66.66.5:443"
+    interval: 1m
+    conditions: ["[CONNECTED] == true"]
+    alerts: [{ type: custom }]
