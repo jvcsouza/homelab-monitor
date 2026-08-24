@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
-# wg-watchdog — Fase 1 (READ-ONLY). Detecta exit residencial morto via idade do handshake.
+# wg-watchdog — Fase 2.5. Detecta exit residencial (idade do handshake) e notifica
+# COM botões de ação (se WEBHOOK_URL/TOKEN estiverem no env; senão, alerta simples).
 set -euo pipefail
 
 NTFY_URL="https://ntfy.shost.me"
 NTFY_TOPIC="healthcheck"
 : "${NTFY_TOKEN:?defina NTFY_TOKEN em /etc/wg-watchdog/env}"
+WEBHOOK_URL="${WEBHOOK_URL:-}"       # ex http://10.66.66.1:8088 (vazio = sem botão)
+WEBHOOK_TOKEN="${WEBHOOK_TOKEN:-}"
 
 IFACE_RES="wgprovider"
-HANDSHAKE_MAX=180        # s; handshake mais velho = exit morto
-FAIL_THRESHOLD=3         # histerese
+HANDSHAKE_MAX=180
+FAIL_THRESHOLD=3
 
 STATE_DIR="/var/lib/wg-watchdog"
 STATE_FILE="$STATE_DIR/state"
@@ -16,10 +19,16 @@ FAIL_FILE="$STATE_DIR/failcount"
 mkdir -p "$STATE_DIR"
 
 log(){ logger -t wg-watchdog "$*"; }
-notify(){
-  curl -fsS --max-time 10 -H "Authorization: Bearer ${NTFY_TOKEN}" \
-    -H "Title: $1" -H "Tags: $3" -H "Priority: ${4:-default}" \
-    -d "$2" "${NTFY_URL}/${NTFY_TOPIC}" >/dev/null || log "falha ao notificar"
+
+# publica via JSON (suporta actions). $1 = corpo JSON completo
+publish(){ curl -fsS --max-time 10 -H "Authorization: Bearer ${NTFY_TOKEN}" \
+  -H "Content-Type: application/json" -d "$1" "$NTFY_URL" >/dev/null || log "falha ao notificar"; }
+
+# monta uma action http; string vazia se webhook não configurado
+mk_action(){   # $1=label  $2=path
+  if [ -z "$WEBHOOK_URL" ] || [ -z "$WEBHOOK_TOKEN" ]; then echo ""; return 0; fi
+  printf '{"action":"http","label":"%s","url":"%s%s","method":"POST","headers":{"Authorization":"Bearer %s"},"clear":true}' \
+    "$1" "$WEBHOOK_URL" "$2" "$WEBHOOK_TOKEN"
 }
 
 handshake_age(){
@@ -40,13 +49,15 @@ if [ "$new" = "RESIDENCIAL_DOWN" ]; then
   if [ "$fails" -ge "$FAIL_THRESHOLD" ] && [ "$prev" != "RESIDENCIAL_DOWN" ]; then
     echo "RESIDENCIAL_DOWN" > "$STATE_FILE"
     log "-> RESIDENCIAL_DOWN (handshake ${age}s)"
-    notify "⚠️ Exit residencial caiu" "Handshake do wgprovider parado há ${age}s. Candidato a fallback datacenter." "warning,rotating_light" "high"
+    act=$(mk_action "🔁 Trocar pra DC" "/datacenter"); acts="[]"; [ -n "$act" ] && acts="[$act]"
+    publish "$(printf '{"topic":"%s","title":"⚠️ Exit residencial caiu","message":"Handshake parado há %ss. Trocar pra datacenter?","priority":5,"tags":["rotating_light"],"actions":%s}' "$NTFY_TOPIC" "$age" "$acts")"
   fi
 else
   echo 0 > "$FAIL_FILE"
   if [ "$prev" = "RESIDENCIAL_DOWN" ]; then
     log "-> RESIDENCIAL_OK"
-    notify "✅ Exit residencial voltou" "Handshake do wgprovider fresco (${age}s)." "white_check_mark" "default"
+    act=$(mk_action "↩️ Voltar pro residencial" "/residencial"); acts="[]"; [ -n "$act" ] && acts="[$act]"
+    publish "$(printf '{"topic":"%s","title":"✅ Exit residencial voltou","message":"Handshake fresco (%ss). Voltar o exit pro residencial?","priority":3,"tags":["white_check_mark"],"actions":%s}' "$NTFY_TOPIC" "$age" "$acts")"
   fi
   echo "RESIDENCIAL_OK" > "$STATE_FILE"
 fi

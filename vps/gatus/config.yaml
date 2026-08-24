@@ -90,7 +90,7 @@ endpoints:
 
   - name: "Caddy do Pi"
     group: "Casa/Pi"
-    url: "tcp://10.66.66.5:443"
+    url: "tcp://10.66.66.5:80"
     interval: 1m
     conditions: ["[CONNECTED] == true"]
     alerts: [{ type: custom }]
