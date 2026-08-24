@@ -12,7 +12,7 @@ NTFY_URL="https://ntfy.shost.me"
 NTFY_TOPIC="healthcheck"
 NTFY_TOKEN="${NTFY_TOKEN:-}"
 
-log(){ logger -t switch-exit "$*"; echo "[switch-exit] $*"; }
+log(){ logger -t switch-exit -- "$*"; echo "[switch-exit] $*"; }
 notify(){
   [ -z "$NTFY_TOKEN" ] && return 0
   curl -fsS --max-time 10 -H "Authorization: Bearer ${NTFY_TOKEN}" \

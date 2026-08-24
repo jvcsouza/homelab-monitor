@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pi-watcher — Fase 1 (READ-ONLY). O Pi vigia o VPS pela wg0 e alerta pela internet de casa.
+# pi-watcher — Fase 1 (READ-ONLY). O Pi watcher o VPS pela wg0 e alerta pela internet de casa.
 set -euo pipefail
 
 NTFY_URL="https://ntfy.shost.me"
@@ -14,7 +14,7 @@ STATE_FILE="$STATE_DIR/state"
 FAIL_FILE="$STATE_DIR/failcount"
 mkdir -p "$STATE_DIR"
 
-log(){ logger -t pi-watcher "$*"; }
+log(){ logger -t pi-watcher -- "$*"; }
 notify(){
   curl -fsS --max-time 10 -H "Authorization: Bearer ${NTFY_TOKEN}" \
     -H "Title: $1" -H "Tags: $3" -H "Priority: ${4:-default}" \

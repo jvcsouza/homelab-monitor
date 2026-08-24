@@ -18,7 +18,7 @@ STATE_FILE="$STATE_DIR/state"
 FAIL_FILE="$STATE_DIR/failcount"
 mkdir -p "$STATE_DIR"
 
-log(){ logger -t wg-watchdog "$*"; }
+log(){ logger -t wg-watchdog -- "$*"; }
 
 # publica via JSON (suporta actions). $1 = corpo JSON completo
 publish(){ curl -fsS --max-time 10 -H "Authorization: Bearer ${NTFY_TOKEN}" \
