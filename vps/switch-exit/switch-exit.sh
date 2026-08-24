@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # switch-exit.sh — Fase 2 (troca MANUAL assistida do exit da tabela 200)
 # Uso: switch-exit.sh {residencial|datacenter|killswitch|status}
-# Idempotente. Preserva o blackhole (piso) e as ip rules. NTFY_TOKEN é opcional.
+# Idempotente. Garante rota + NAT + MSS + FORWARD. Preserva o blackhole e as ip rules.
 set -euo pipefail
 
 TABLE=200
 IFACE_RES="wgprovider"
 IFACE_DC="wgproviderdc"
+LAN_IF="wg0"
 LAN_NET="10.66.66.0/24"
+BRAVE_BR="br-762d2fb3e8fc"     # bridge do brave-net; atualize se recriar a network
 BRAVE_NET="172.30.0.0/24"
 
 NTFY_URL="https://ntfy.shost.me"
@@ -24,28 +26,37 @@ notify(){
 
 iface_up(){ ip link show "$1" &>/dev/null; }
 
-# Replica MASQUERADE (LAN + brave-net) e MSS clamp na interface — add-if-missing, nunca remove.
+# add-if-missing genérico (nunca duplica; nunca remove)
+add_rule(){ local t="$1"; shift; iptables -t "$t" -C "$@" 2>/dev/null || iptables -t "$t" -I "$@"; }
+
 ensure_nat_mss(){
   local i="$1"
-  iptables -t nat -C POSTROUTING -s "$LAN_NET"   -o "$i" -j MASQUERADE 2>/dev/null \
-    || iptables -t nat -A POSTROUTING -s "$LAN_NET"   -o "$i" -j MASQUERADE
-  iptables -t nat -C POSTROUTING -s "$BRAVE_NET" -o "$i" -j MASQUERADE 2>/dev/null \
-    || iptables -t nat -A POSTROUTING -s "$BRAVE_NET" -o "$i" -j MASQUERADE
-  iptables -t mangle -C FORWARD -o "$i" -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null \
-    || iptables -t mangle -A FORWARD -o "$i" -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+  add_rule nat POSTROUTING -s "$LAN_NET"   -o "$i" -j MASQUERADE
+  add_rule nat POSTROUTING -s "$BRAVE_NET" -o "$i" -j MASQUERADE
+  add_rule mangle FORWARD -o "$i" -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+}
+
+ensure_forward(){   # LAN e brave-net <-> exit (com retorno stateful)
+  local i="$1"
+  add_rule filter FORWARD -i "$LAN_IF"  -o "$i" -j ACCEPT
+  add_rule filter FORWARD -i "$i" -o "$LAN_IF"  -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+  add_rule filter FORWARD -i "$BRAVE_BR" -o "$i" -j ACCEPT
+  add_rule filter FORWARD -i "$i" -o "$BRAVE_BR" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 }
 
 activate(){
   local i="$1"
   iface_up "$i" || { log "subindo $i"; wg-quick up "$i"; }
-  ensure_nat_mss "$i"                                   # NAT ANTES da rota (evita vazar sem masq)
-  ip route replace default dev "$i" table "$TABLE"      # vira o default metric-0 (acima do blackhole)
+  ensure_nat_mss "$i"                                  # NAT/MSS antes de virar a rota
+  ensure_forward "$i"                                  # e o FORWARD (senão a policy DROP mata)
+  ip route replace default dev "$i" table "$TABLE"     # default metric-0 (acima do blackhole)
   log "exit ativo -> $i"
 }
 
 status(){
   echo "== ip rule (200/210) =="; ip rule show | grep -E '^(200|210):' || true
   echo "== table $TABLE =="; ip route show table "$TABLE"
+  echo "== forward (exits) =="; iptables -S FORWARD | grep -E "wgprovider|wgproviderdc" || echo "(nenhuma)"
   echo "== handshakes =="
   for i in "$IFACE_RES" "$IFACE_DC"; do
     iface_up "$i" && { printf '%s: ' "$i"; wg show "$i" latest-handshakes 2>/dev/null || echo "(sem peer)"; }
