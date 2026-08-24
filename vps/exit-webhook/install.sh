@@ -16,13 +16,18 @@ if [ ! -f /etc/exit-webhook/env ]; then
   echo ">> Criado /etc/exit-webhook/env — edite WEBHOOK_TOKEN e NTFY_TOKEN."
 fi
 
-# sudoers: exithook roda SÓ o switch com args fixos (least-privilege)
-sudo tee /etc/sudoers.d/exit-webhook >/dev/null <<SUDO
-Defaults:${SVCUSER} !requiretty
+# sudoers: least-privilege. Valida num tmp e só instala se passar (nunca deixa arquivo quebrado)
+TMP="$(mktemp)"
+cat > "$TMP" <<SUDO
 ${SVCUSER} ALL=(root) NOPASSWD: ${SWITCH} datacenter, ${SWITCH} residencial, ${SWITCH} killswitch
 SUDO
-sudo chmod 440 /etc/sudoers.d/exit-webhook
-sudo visudo -cf /etc/sudoers.d/exit-webhook
+if sudo visudo -cf "$TMP" >/dev/null; then
+  sudo install -m 0440 -o root -g root "$TMP" /etc/sudoers.d/exit-webhook
+  echo ">> sudoers instalado e validado."
+else
+  echo "!! sudoers inválido — abortando sem instalar."; rm -f "$TMP"; exit 1
+fi
+rm -f "$TMP"
 
 chmod +x "$SWITCH" "$PY" 2>/dev/null || true
 
